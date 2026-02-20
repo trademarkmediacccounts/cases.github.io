@@ -85,6 +85,7 @@ const LabelSettingsPanel = ({ settings, onChange }: LabelSettingsPanelProps) => 
           ['showDates', 'Dates'],
           ['showNotes', 'Notes'],
           ['showVenue', 'Venue'],
+          ['showWeight', 'Weight Total'],
         ] as const).map(([key, label]) => (
           <div key={key} className="flex items-center justify-between">
             <Label className="text-sm text-foreground">{label}</Label>
