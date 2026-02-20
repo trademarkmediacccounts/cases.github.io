@@ -1,9 +1,12 @@
 import Barcode from 'react-barcode';
-import { RentalOrder, LabelSettings } from '@/types/rental';
+import { ResolvedCase, LabelSettings } from '@/types/rental';
+import { Weight } from 'lucide-react';
 
 interface CaseLabelProps {
-  order: RentalOrder;
+  resolvedCase: ResolvedCase;
   settings: LabelSettings;
+  caseIndex?: number;
+  totalCases?: number;
 }
 
 const fontSizeMap = {
@@ -12,7 +15,7 @@ const fontSizeMap = {
   large: { title: 'text-lg', body: 'text-base', header: 'text-xl' },
 };
 
-const CaseLabel = ({ order, settings }: CaseLabelProps) => {
+const CaseLabel = ({ resolvedCase: rc, settings, caseIndex, totalCases }: CaseLabelProps) => {
   const sizes = fontSizeMap[settings.fontSize];
 
   return (
@@ -34,41 +37,48 @@ const CaseLabel = ({ order, settings }: CaseLabelProps) => {
         </div>
         <div className="text-right">
           <span className={`${sizes.body} font-mono opacity-80`}>
-            {order.orderRef}
+            {rc.orderRef}
           </span>
+          {caseIndex !== undefined && totalCases !== undefined && totalCases > 1 && (
+            <p className={`${sizes.body} font-mono opacity-60`}>
+              Case {caseIndex + 1} of {totalCases}
+            </p>
+          )}
         </div>
       </div>
 
       {/* Job Info */}
       <div className="px-4 py-3 border-b border-label-border">
         <h3 className={`${sizes.title} font-bold text-foreground`}>
-          {order.jobName}
+          {rc.jobName}
         </h3>
         <p className={`${sizes.body} text-muted-foreground mt-0.5`}>
-          {order.customerName}
+          {rc.customerName}
         </p>
         {settings.showVenue && (
           <p className={`${sizes.body} text-muted-foreground mt-0.5 font-mono`}>
-            📍 {order.venue}
+            📍 {rc.venue}
           </p>
         )}
       </div>
 
       {/* Case Info */}
       <div className="px-4 py-3 border-b border-label-border bg-muted/50">
-        <div className="flex justify-between items-center">
+        <div className="flex justify-between items-start">
           <div>
-            <span className={`${sizes.body} text-muted-foreground`}>Case</span>
+            <span className={`${sizes.body} text-muted-foreground`}>Container</span>
             <p className={`${sizes.title} font-mono font-bold text-foreground`}>
-              {order.caseNumber}
+              {rc.caseItem.name}
             </p>
           </div>
-          <div className="text-right">
-            <span className={`${sizes.body} text-muted-foreground`}>Type</span>
-            <p className={`${sizes.title} font-mono font-semibold text-foreground`}>
-              {order.caseType}
-            </p>
-          </div>
+          {settings.showWeight && (
+            <div className="text-right flex items-center gap-1.5 bg-primary text-primary-foreground px-2.5 py-1.5 rounded">
+              <Weight className="h-4 w-4" />
+              <span className={`${sizes.title} font-mono font-bold`}>
+                {rc.totalWeight.toFixed(1)} kg
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -78,16 +88,16 @@ const CaseLabel = ({ order, settings }: CaseLabelProps) => {
           <div>
             <span className={`${sizes.body} text-muted-foreground`}>Out</span>
             <p className={`${sizes.body} font-mono font-semibold text-foreground`}>
-              {new Date(order.jobDate).toLocaleDateString('en-GB', {
-                day: '2-digit', month: 'short', year: 'numeric'
+              {new Date(rc.jobDate).toLocaleDateString('en-GB', {
+                day: '2-digit', month: 'short', year: 'numeric',
               })}
             </p>
           </div>
           <div>
             <span className={`${sizes.body} text-muted-foreground`}>Return</span>
             <p className={`${sizes.body} font-mono font-semibold text-foreground`}>
-              {new Date(order.returnDate).toLocaleDateString('en-GB', {
-                day: '2-digit', month: 'short', year: 'numeric'
+              {new Date(rc.returnDate).toLocaleDateString('en-GB', {
+                day: '2-digit', month: 'short', year: 'numeric',
               })}
             </p>
           </div>
@@ -95,17 +105,20 @@ const CaseLabel = ({ order, settings }: CaseLabelProps) => {
       )}
 
       {/* Contents */}
-      {settings.showContents && (
+      {settings.showContents && rc.contents.length > 0 && (
         <div className="px-4 py-3 border-b border-label-border">
           <span className={`${sizes.body} text-muted-foreground font-semibold uppercase tracking-wide`}>
             Contents
           </span>
           <table className="w-full mt-1.5">
             <tbody>
-              {order.contents.map((item, i) => (
+              {rc.contents.map((item, i) => (
                 <tr key={i} className={`${sizes.body} font-mono`}>
                   <td className="py-0.5 text-foreground">{item.name}</td>
-                  <td className="py-0.5 text-right text-muted-foreground w-12">
+                  <td className="py-0.5 text-right text-muted-foreground w-16">
+                    {item.weight ? `${(item.weight * item.quantity).toFixed(1)}kg` : ''}
+                  </td>
+                  <td className="py-0.5 text-right text-muted-foreground w-10">
                     ×{item.quantity}
                   </td>
                 </tr>
@@ -116,12 +129,12 @@ const CaseLabel = ({ order, settings }: CaseLabelProps) => {
       )}
 
       {/* Notes */}
-      {settings.showNotes && order.notes && (
+      {settings.showNotes && rc.notes && (
         <div className="px-4 py-2 border-b border-label-border">
           <span className={`${sizes.body} text-muted-foreground font-semibold uppercase tracking-wide`}>
             Notes
           </span>
-          <p className={`${sizes.body} text-foreground mt-0.5`}>{order.notes}</p>
+          <p className={`${sizes.body} text-foreground mt-0.5`}>{rc.notes}</p>
         </div>
       )}
 
@@ -129,7 +142,7 @@ const CaseLabel = ({ order, settings }: CaseLabelProps) => {
       {settings.showBarcode && (
         <div className="px-4 py-3 flex flex-col items-center">
           <Barcode
-            value={order.caseAssetCode}
+            value={rc.caseAssetCode}
             width={1.5}
             height={40}
             fontSize={12}

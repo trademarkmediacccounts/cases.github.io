@@ -1,6 +1,6 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { mockOrders } from '@/data/mockOrders';
-import { defaultLabelSettings, LabelSettings } from '@/types/rental';
+import { defaultLabelSettings, LabelSettings, resolveOrderCases, ResolvedCase } from '@/types/rental';
 import OrderCard from '@/components/OrderCard';
 import CaseLabel from '@/components/CaseLabel';
 import LabelSettingsPanel from '@/components/LabelSettingsPanel';
@@ -19,7 +19,6 @@ const Index = () => {
     return (
       o.jobName.toLowerCase().includes(q) ||
       o.customerName.toLowerCase().includes(q) ||
-      o.caseNumber.toLowerCase().includes(q) ||
       o.caseAssetCode.toLowerCase().includes(q) ||
       o.orderRef.toLowerCase().includes(q)
     );
@@ -39,7 +38,12 @@ const Index = () => {
     }
   };
 
-  const selectedOrders = mockOrders.filter((o) => selectedIds.includes(o.id));
+  // Resolve cases from selected orders
+  const resolvedCases: ResolvedCase[] = useMemo(() => {
+    return mockOrders
+      .filter((o) => selectedIds.includes(o.id))
+      .flatMap((o) => resolveOrderCases(o));
+  }, [selectedIds]);
 
   const handlePrint = () => {
     window.print();
@@ -65,11 +69,11 @@ const Index = () => {
           </div>
           <Button
             onClick={handlePrint}
-            disabled={selectedOrders.length === 0}
+            disabled={resolvedCases.length === 0}
             className="bg-accent text-accent-foreground hover:bg-accent/90 font-semibold gap-2"
           >
             <Printer className="h-4 w-4" />
-            Print {selectedOrders.length > 0 && `(${selectedOrders.length})`}
+            Print {resolvedCases.length > 0 && `(${resolvedCases.length} labels)`}
           </Button>
         </div>
       </header>
@@ -113,17 +117,22 @@ const Index = () => {
           {/* Label Preview */}
           <div className="lg:col-span-6">
             <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
-              Label Preview
+              Label Preview — {resolvedCases.length} label{resolvedCases.length !== 1 ? 's' : ''}
             </h2>
-            {selectedOrders.length === 0 ? (
+            {resolvedCases.length === 0 ? (
               <div className="flex items-center justify-center h-64 border border-dashed border-border rounded-lg">
                 <p className="text-muted-foreground text-sm">Select orders to preview labels</p>
               </div>
             ) : (
               <div className="space-y-6 flex flex-col items-center">
-                {selectedOrders.map((order) => (
-                  <div key={order.id} className="animate-fade-in">
-                    <CaseLabel order={order} settings={settings} />
+                {resolvedCases.map((rc, i) => (
+                  <div key={`${rc.orderId}-${rc.caseAssetCode}`} className="animate-fade-in">
+                    <CaseLabel
+                      resolvedCase={rc}
+                      settings={settings}
+                      caseIndex={i}
+                      totalCases={resolvedCases.filter((c) => c.orderId === rc.orderId).length}
+                    />
                   </div>
                 ))}
               </div>
@@ -140,9 +149,9 @@ const Index = () => {
       {/* Print Area */}
       <div ref={printRef} className="print-area hidden print:block">
         <div className="space-y-8">
-          {selectedOrders.map((order) => (
-            <div key={order.id} className="page-break-after">
-              <CaseLabel order={order} settings={settings} />
+          {resolvedCases.map((rc) => (
+            <div key={`${rc.orderId}-${rc.caseAssetCode}-print`} className="page-break-after">
+              <CaseLabel resolvedCase={rc} settings={settings} />
             </div>
           ))}
         </div>

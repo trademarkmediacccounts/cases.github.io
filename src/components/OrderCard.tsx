@@ -20,6 +20,10 @@ const statusLabels = {
 };
 
 const OrderCard = ({ order, selected, onSelect }: OrderCardProps) => {
+  const caseItems = order.items.filter((i) => i.productCategory?.toLowerCase() === 'case');
+  const caseCount = caseItems.length;
+  const caseName = caseItems[0]?.name ?? 'No case';
+
   return (
     <button
       onClick={() => onSelect(order.id)}
@@ -33,7 +37,7 @@ const OrderCard = ({ order, selected, onSelect }: OrderCardProps) => {
         <div className="flex items-center gap-2">
           <Package className="h-4 w-4 text-accent" />
           <span className="font-mono font-bold text-sm text-foreground">
-            {order.caseNumber}
+            {caseCount} case{caseCount !== 1 ? 's' : ''}
           </span>
         </div>
         <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusStyles[order.status]}`}>
@@ -41,7 +45,7 @@ const OrderCard = ({ order, selected, onSelect }: OrderCardProps) => {
         </span>
       </div>
 
-      <h4 className="font-semibold text-foreground text-sm">{order.caseType}</h4>
+      <h4 className="font-semibold text-foreground text-sm">{caseName}</h4>
       <p className="text-xs text-muted-foreground mt-0.5">{order.jobName}</p>
 
       <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
@@ -56,7 +60,7 @@ const OrderCard = ({ order, selected, onSelect }: OrderCardProps) => {
       </div>
 
       <div className="flex items-center justify-between mt-2">
-        <span className="font-mono text-xs text-muted-foreground">{order.caseAssetCode}</span>
+        <span className="font-mono text-xs text-muted-foreground">{order.orderRef}</span>
         <ChevronRight className={`h-4 w-4 transition-colors ${selected ? 'text-accent' : 'text-muted-foreground'}`} />
       </div>
     </button>
