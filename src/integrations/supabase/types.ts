@@ -14,7 +14,75 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      api_credentials: {
+        Row: {
+          api_key: string
+          api_url: string
+          created_at: string
+          database_name: string | null
+          id: string
+          is_active: boolean
+          platform: string
+          subdomain: string | null
+          updated_at: string
+          user_id: string
+          username: string | null
+        }
+        Insert: {
+          api_key: string
+          api_url: string
+          created_at?: string
+          database_name?: string | null
+          id?: string
+          is_active?: boolean
+          platform: string
+          subdomain?: string | null
+          updated_at?: string
+          user_id: string
+          username?: string | null
+        }
+        Update: {
+          api_key?: string
+          api_url?: string
+          created_at?: string
+          database_name?: string | null
+          id?: string
+          is_active?: boolean
+          platform?: string
+          subdomain?: string | null
+          updated_at?: string
+          user_id?: string
+          username?: string | null
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          company_name: string | null
+          created_at: string
+          display_name: string | null
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          company_name?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          company_name?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

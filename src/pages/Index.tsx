@@ -1,11 +1,13 @@
 import { useState, useRef, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { mockOrders } from '@/data/mockOrders';
 import { defaultLabelSettings, LabelSettings, resolveOrderCases, ResolvedCase } from '@/types/rental';
 import OrderCard from '@/components/OrderCard';
 import CaseLabel from '@/components/CaseLabel';
 import LabelSettingsPanel from '@/components/LabelSettingsPanel';
+import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
-import { Printer, Tag, Search, CheckSquare } from 'lucide-react';
+import { Printer, Tag, Search, CheckSquare, Settings, LogOut } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
 const Index = () => {
@@ -13,6 +15,8 @@ const Index = () => {
   const [settings, setSettings] = useState<LabelSettings>(defaultLabelSettings);
   const [search, setSearch] = useState('');
   const printRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
+  const { signOut } = useAuth();
 
   const filteredOrders = mockOrders.filter((o) => {
     const q = search.toLowerCase();
@@ -67,14 +71,22 @@ const Index = () => {
               </p>
             </div>
           </div>
-          <Button
-            onClick={handlePrint}
-            disabled={resolvedCases.length === 0}
-            className="bg-accent text-accent-foreground hover:bg-accent/90 font-semibold gap-2"
-          >
-            <Printer className="h-4 w-4" />
-            Print {resolvedCases.length > 0 && `(${resolvedCases.length} labels)`}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="icon" onClick={() => navigate('/settings')} title="API Settings">
+              <Settings className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="icon" onClick={signOut} title="Sign out">
+              <LogOut className="h-4 w-4" />
+            </Button>
+            <Button
+              onClick={handlePrint}
+              disabled={resolvedCases.length === 0}
+              className="bg-accent text-accent-foreground hover:bg-accent/90 font-semibold gap-2"
+            >
+              <Printer className="h-4 w-4" />
+              Print {resolvedCases.length > 0 && `(${resolvedCases.length} labels)`}
+            </Button>
+          </div>
         </div>
       </header>
 
