@@ -1,24 +1,25 @@
 import { useState, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { mockOrders } from '@/data/mockOrders';
 import { defaultLabelSettings, LabelSettings, resolveOrderCases, ResolvedCase } from '@/types/rental';
 import OrderCard from '@/components/OrderCard';
 import CaseLabel from '@/components/CaseLabel';
 import LabelSettingsPanel from '@/components/LabelSettingsPanel';
 import { useAuth } from '@/hooks/useAuth';
+import { useOrders } from '@/hooks/useOrders';
 import { Button } from '@/components/ui/button';
-import { Printer, Tag, Search, CheckSquare, Settings, LogOut } from 'lucide-react';
+import { Printer, Tag, Search, CheckSquare, Settings, LogOut, RefreshCw, AlertCircle, Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
 const Index = () => {
-  const [selectedIds, setSelectedIds] = useState<string[]>([mockOrders[0].id]);
+  const { orders, loading, error, usingMockData, refetch } = useOrders();
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [settings, setSettings] = useState<LabelSettings>(defaultLabelSettings);
   const [search, setSearch] = useState('');
   const printRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const { signOut } = useAuth();
 
-  const filteredOrders = mockOrders.filter((o) => {
+  const filteredOrders = orders.filter((o) => {
     const q = search.toLowerCase();
     return (
       o.jobName.toLowerCase().includes(q) ||
@@ -44,10 +45,10 @@ const Index = () => {
 
   // Resolve cases from selected orders
   const resolvedCases: ResolvedCase[] = useMemo(() => {
-    return mockOrders
+    return orders
       .filter((o) => selectedIds.includes(o.id))
       .flatMap((o) => resolveOrderCases(o));
-  }, [selectedIds]);
+  }, [selectedIds, orders]);
 
   const handlePrint = () => {
     window.print();
@@ -67,11 +68,14 @@ const Index = () => {
                 Case Label Generator
               </h1>
               <p className="text-xs text-muted-foreground">
-                Odoo Rental Labels
+                {usingMockData ? 'Sample Data' : 'Live Orders'}
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="ghost" size="icon" onClick={refetch} disabled={loading} title="Refresh orders">
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            </Button>
             <Button variant="ghost" size="icon" onClick={() => navigate('/settings')} title="API Settings">
               <Settings className="h-4 w-4" />
             </Button>
@@ -109,21 +113,34 @@ const Index = () => {
               </Button>
             </div>
 
-            <div className="space-y-2 max-h-[calc(100vh-200px)] overflow-y-auto pr-1">
-              {filteredOrders.map((order) => (
-                <OrderCard
-                  key={order.id}
-                  order={order}
-                  selected={selectedIds.includes(order.id)}
-                  onSelect={toggleSelect}
-                />
-              ))}
-              {filteredOrders.length === 0 && (
-                <p className="text-sm text-muted-foreground text-center py-8">
-                  No orders found
-                </p>
-              )}
-            </div>
+            {error && (
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-destructive/10 text-destructive text-xs">
+                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                <p>{error}</p>
+              </div>
+            )}
+
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-[calc(100vh-200px)] overflow-y-auto pr-1">
+                {filteredOrders.map((order) => (
+                  <OrderCard
+                    key={order.id}
+                    order={order}
+                    selected={selectedIds.includes(order.id)}
+                    onSelect={toggleSelect}
+                  />
+                ))}
+                {filteredOrders.length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-8">
+                    No orders found
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Label Preview */}
