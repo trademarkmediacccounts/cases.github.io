@@ -56,6 +56,69 @@ export type Database = {
         }
         Relationships: []
       }
+      case_assignments: {
+        Row: {
+          assigned_items: Json
+          case_item_name: string
+          created_at: string
+          id: string
+          order_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          assigned_items?: Json
+          case_item_name: string
+          created_at?: string
+          id?: string
+          order_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          assigned_items?: Json
+          case_item_name?: string
+          created_at?: string
+          id?: string
+          order_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      label_presets: {
+        Row: {
+          created_at: string
+          id: string
+          is_default: boolean
+          logo_url: string | null
+          name: string
+          settings: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_default?: boolean
+          logo_url?: string | null
+          name?: string
+          settings?: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_default?: boolean
+          logo_url?: string | null
+          name?: string
+          settings?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           company_name: string | null

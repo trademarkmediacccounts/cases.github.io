@@ -7,6 +7,7 @@ interface CaseLabelProps {
   settings: LabelSettings;
   caseIndex?: number;
   totalCases?: number;
+  logoUrl?: string | null;
 }
 
 const fontSizeMap = {
@@ -15,7 +16,7 @@ const fontSizeMap = {
   large: { title: 'text-lg', body: 'text-base', header: 'text-xl' },
 };
 
-const CaseLabel = ({ resolvedCase: rc, settings, caseIndex, totalCases }: CaseLabelProps) => {
+const CaseLabel = ({ resolvedCase: rc, settings, caseIndex, totalCases, logoUrl }: CaseLabelProps) => {
   const sizes = fontSizeMap[settings.fontSize];
 
   return (
@@ -28,7 +29,10 @@ const CaseLabel = ({ resolvedCase: rc, settings, caseIndex, totalCases }: CaseLa
     >
       {/* Header */}
       <div className="label-header px-4 py-3 flex items-center justify-between">
-        <div>
+        <div className="flex items-center gap-2">
+          {settings.showLogo && logoUrl && (
+            <img src={logoUrl} alt="Logo" className="h-8 object-contain" />
+          )}
           {settings.showLogo && (
             <h2 className={`${sizes.header} font-mono font-bold tracking-wider`}>
               {settings.companyName}

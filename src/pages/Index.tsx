@@ -4,16 +4,18 @@ import { defaultLabelSettings, LabelSettings, resolveOrderCases, ResolvedCase } 
 import OrderCard from '@/components/OrderCard';
 import CaseLabel from '@/components/CaseLabel';
 import LabelSettingsPanel from '@/components/LabelSettingsPanel';
+import BrandingPresetsPanel from '@/components/BrandingPresetsPanel';
 import { useAuth } from '@/hooks/useAuth';
 import { useOrders } from '@/hooks/useOrders';
 import { Button } from '@/components/ui/button';
-import { Printer, Tag, Search, CheckSquare, Settings, LogOut, RefreshCw, AlertCircle, Loader2 } from 'lucide-react';
+import { Printer, Tag, Search, CheckSquare, Settings, LogOut, RefreshCw, AlertCircle, Loader2, Eye } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
 const Index = () => {
   const { orders, loading, error, usingMockData, refetch } = useOrders();
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [settings, setSettings] = useState<LabelSettings>(defaultLabelSettings);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const printRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
@@ -43,7 +45,6 @@ const Index = () => {
     }
   };
 
-  // Resolve cases from selected orders
   const resolvedCases: ResolvedCase[] = useMemo(() => {
     return orders
       .filter((o) => selectedIds.includes(o.id))
@@ -52,6 +53,11 @@ const Index = () => {
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleLoadPreset = (presetSettings: LabelSettings, presetLogoUrl: string | null) => {
+    setSettings(presetSettings);
+    setLogoUrl(presetLogoUrl);
   };
 
   return (
@@ -127,12 +133,22 @@ const Index = () => {
             ) : (
               <div className="space-y-2 max-h-[calc(100vh-200px)] overflow-y-auto pr-1">
                 {filteredOrders.map((order) => (
-                  <OrderCard
-                    key={order.id}
-                    order={order}
-                    selected={selectedIds.includes(order.id)}
-                    onSelect={toggleSelect}
-                  />
+                  <div key={order.id} className="relative">
+                    <OrderCard
+                      order={order}
+                      selected={selectedIds.includes(order.id)}
+                      onSelect={toggleSelect}
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="absolute top-2 right-2 h-7 w-7"
+                      onClick={(e) => { e.stopPropagation(); navigate(`/job/${order.id}`); }}
+                      title="View & assign cases"
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                 ))}
                 {filteredOrders.length === 0 && (
                   <p className="text-sm text-muted-foreground text-center py-8">
@@ -161,6 +177,7 @@ const Index = () => {
                       settings={settings}
                       caseIndex={i}
                       totalCases={resolvedCases.filter((c) => c.orderId === rc.orderId).length}
+                      logoUrl={logoUrl}
                     />
                   </div>
                 ))}
@@ -169,8 +186,9 @@ const Index = () => {
           </div>
 
           {/* Settings */}
-          <div className="lg:col-span-3">
+          <div className="lg:col-span-3 space-y-4">
             <LabelSettingsPanel settings={settings} onChange={setSettings} />
+            <BrandingPresetsPanel settings={settings} onLoadPreset={handleLoadPreset} />
           </div>
         </div>
       </div>
@@ -180,7 +198,7 @@ const Index = () => {
         <div className="space-y-8">
           {resolvedCases.map((rc) => (
             <div key={`${rc.orderId}-${rc.caseAssetCode}-print`} className="page-break-after">
-              <CaseLabel resolvedCase={rc} settings={settings} />
+              <CaseLabel resolvedCase={rc} settings={settings} logoUrl={logoUrl} />
             </div>
           ))}
         </div>
