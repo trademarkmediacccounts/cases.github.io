@@ -236,13 +236,35 @@ async function fetchOdooOrders(cred: any): Promise<RentalOrder[]> {
       items: lines.map((line: any) => ({
         name: line.name || line.product_id?.[1] || "Product",
         quantity: line.product_uom_qty || 1,
-        productCategory: "general",
+        productCategory: detectProductCategory(line.name || line.product_id?.[1] || ""),
       })),
       notes: ro.note ? ro.note.replace(/<[^>]*>/g, "") : undefined,
     });
   }
 
   return orders;
+}
+
+// ── Product Category Detection ─────────────────────────────────────
+
+const CASE_KEYWORDS = [
+  "case", "flight case", "road case", "rack case", "peli", "pelican",
+  "skb", "gator", "transport case", "trunk", "flightcase", "hard case",
+  "rolling case", "utility case", "equipment case",
+];
+
+function detectProductCategory(name: string): string {
+  const lower = name.toLowerCase();
+  for (const keyword of CASE_KEYWORDS) {
+    if (lower.includes(keyword)) return "case";
+  }
+  // Additional heuristics
+  if (/\b(cable|xlr|dmx|sdi|hdmi|powercon|cat[56])\b/i.test(name)) return "cable";
+  if (/\b(speaker|sub|amp|mixer|mic|monitor|iem|earphone|headphone|di box)\b/i.test(name)) return "audio";
+  if (/\b(light|wash|spot|beam|par|strobe|hazer|haze|fog|dmx)\b/i.test(name)) return "lighting";
+  if (/\b(projector|screen|camera|lens|tripod|switcher|recorder)\b/i.test(name)) return "video";
+  if (/\b(clamp|coupler|truss|stand|rigging|safety|sling)\b/i.test(name)) return "rigging";
+  return "general";
 }
 
 // ── currentRMS REST API ────────────────────────────────────────────

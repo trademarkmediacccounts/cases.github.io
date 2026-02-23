@@ -8,6 +8,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import Settings from "./pages/Settings";
+import JobView from "./pages/JobView";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -23,6 +24,7 @@ const App = () => (
             <Route path="/auth" element={<Auth />} />
             <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+            <Route path="/job/:orderId" element={<ProtectedRoute><JobView /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
