@@ -234,7 +234,7 @@ async function fetchOdooOrders(cred: any): Promise<RentalOrder[]> {
       caseAssetCode: `ODO-${ro.id}`,
       status: statusMap[ro.rental_status] || "confirmed",
       items: lines.map((line: any) => ({
-        name: line.name || line.product_id?.[1] || "Product",
+        name: cleanOdooItemName(line.product_id?.[1] || line.name || "Product"),
         quantity: line.product_uom_qty || 1,
         productCategory: detectProductCategory(line.name || line.product_id?.[1] || ""),
       })),
@@ -243,6 +243,16 @@ async function fetchOdooOrders(cred: any): Promise<RentalOrder[]> {
   }
 
   return orders;
+}
+
+// ── Clean Odoo Item Names ──────────────────────────────────────────
+
+function cleanOdooItemName(name: string): string {
+  // Remove rental period dates like "(02/15/2025 10:00:00 AM - 02/20/2025 10:00:00 AM)" or similar patterns
+  return name
+    .replace(/\s*\(\d{1,2}\/\d{1,2}\/\d{2,4}.*?-.*?\d{1,2}\/\d{1,2}\/\d{2,4}.*?\)\s*/g, "")
+    .replace(/\s*\(\d{4}-\d{2}-\d{2}.*?-.*?\d{4}-\d{2}-\d{2}.*?\)\s*/g, "")
+    .trim();
 }
 
 // ── Product Category Detection ─────────────────────────────────────
