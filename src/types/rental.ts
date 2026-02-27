@@ -37,6 +37,26 @@ export interface ResolvedCase {
   notes?: string;
 }
 
+// ── Label Sizing ───────────────────────────────────────────────────
+
+export type LabelPreset = 'flightcase-small' | 'flightcase-large' | 'thermal-4x6' | 'thermal-receipt' | 'custom';
+export type LabelOrientation = 'portrait' | 'landscape';
+export type LabelMode = 'label' | 'thermal-receipt';
+
+export interface LabelPresetDef {
+  name: string;
+  width: number; // mm
+  height: number; // mm
+  thermal?: boolean;
+}
+
+export const LABEL_PRESETS: Record<Exclude<LabelPreset, 'custom'>, LabelPresetDef> = {
+  'flightcase-small': { name: 'Flightcase 127×178mm', width: 127, height: 178 },
+  'flightcase-large': { name: 'Flightcase 150×210mm', width: 150, height: 210 },
+  'thermal-4x6': { name: 'Thermal 4″×6″', width: 102, height: 152, thermal: true },
+  'thermal-receipt': { name: 'Thermal Receipt', width: 80, height: 0, thermal: true }, // height = auto
+};
+
 export interface LabelSettings {
   showLogo: boolean;
   companyName: string;
@@ -50,6 +70,10 @@ export interface LabelSettings {
   labelWidth: number;
   labelHeight: number;
   accentColor: string;
+  labelPreset: LabelPreset;
+  orientation: LabelOrientation;
+  labelMode: LabelMode;
+  thermalReceiptWidth: number; // mm
 }
 
 export const defaultLabelSettings: LabelSettings = {
@@ -62,15 +86,34 @@ export const defaultLabelSettings: LabelSettings = {
   showVenue: true,
   showWeight: true,
   fontSize: 'medium',
-  labelWidth: 100,
-  labelHeight: 150,
+  labelWidth: 127,
+  labelHeight: 178,
   accentColor: 'amber',
+  labelPreset: 'flightcase-small',
+  orientation: 'portrait',
+  labelMode: 'label',
+  thermalReceiptWidth: 80,
 };
+
+/** Get effective dimensions based on preset + orientation */
+export function getEffectiveDimensions(settings: LabelSettings): { width: number; height: number } {
+  let w = settings.labelWidth;
+  let h = settings.labelHeight;
+
+  if (settings.labelPreset !== 'custom') {
+    const preset = LABEL_PRESETS[settings.labelPreset];
+    w = preset.width;
+    h = preset.height;
+  }
+
+  if (settings.orientation === 'landscape' && h > 0) {
+    return { width: h, height: w };
+  }
+  return { width: w, height: h };
+}
 
 /**
  * Resolves an order's items into cases.
- * Items with productCategory 'case' become containers;
- * all other items are distributed as contents.
  */
 export function resolveOrderCases(order: RentalOrder): ResolvedCase[] {
   const caseItems = order.items.filter(
@@ -80,7 +123,6 @@ export function resolveOrderCases(order: RentalOrder): ResolvedCase[] {
     (item) => item.productCategory?.toLowerCase() !== 'case'
   );
 
-  // If no case items found, create a single virtual case
   if (caseItems.length === 0) {
     const totalWeight = contentItems.reduce(
       (sum, item) => sum + (item.weight ?? 0) * item.quantity,
@@ -105,9 +147,7 @@ export function resolveOrderCases(order: RentalOrder): ResolvedCase[] {
     ];
   }
 
-  // Distribute content items evenly across cases
   return caseItems.map((caseItem, index) => {
-    // For single case, all contents go in it. For multiple, distribute round-robin.
     const assignedContents =
       caseItems.length === 1
         ? contentItems
@@ -117,7 +157,7 @@ export function resolveOrderCases(order: RentalOrder): ResolvedCase[] {
       (sum, item) => sum + (item.weight ?? 0) * item.quantity,
       0
     );
-    const caseWeight = (caseItem.weight ?? 0) * 1; // case itself
+    const caseWeight = (caseItem.weight ?? 0) * 1;
     const totalWeight = contentsWeight + caseWeight;
 
     return {
