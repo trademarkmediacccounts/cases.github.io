@@ -97,13 +97,16 @@ export const defaultLabelSettings: LabelSettings = {
 
 /** Get effective dimensions based on preset + orientation */
 export function getEffectiveDimensions(settings: LabelSettings): { width: number; height: number } {
-  let w = settings.labelWidth;
-  let h = settings.labelHeight;
+  let w = settings.labelWidth ?? 127;
+  let h = settings.labelHeight ?? 178;
 
-  if (settings.labelPreset !== 'custom') {
-    const preset = LABEL_PRESETS[settings.labelPreset];
-    w = preset.width;
-    h = preset.height;
+  const presetKey = settings.labelPreset ?? 'custom';
+  if (presetKey !== 'custom') {
+    const preset = LABEL_PRESETS[presetKey];
+    if (preset) {
+      w = preset.width;
+      h = preset.height;
+    }
   }
 
   if (settings.orientation === 'landscape' && h > 0) {
