@@ -1,5 +1,5 @@
 import Barcode from 'react-barcode';
-import { ResolvedCase, LabelSettings } from '@/types/rental';
+import { ResolvedCase, LabelSettings, getEffectiveDimensions, LABEL_PRESETS } from '@/types/rental';
 import { Weight } from 'lucide-react';
 
 interface CaseLabelProps {
@@ -18,17 +18,21 @@ const fontSizeMap = {
 
 const CaseLabel = ({ resolvedCase: rc, settings, caseIndex, totalCases, logoUrl }: CaseLabelProps) => {
   const sizes = fontSizeMap[settings.fontSize];
+  const dims = getEffectiveDimensions(settings);
+  const isThermal = settings.labelPreset === 'thermal-4x6' || settings.labelPreset === 'thermal-receipt';
 
   return (
     <div
-      className="label-container rounded-sm overflow-hidden shadow-md print:shadow-none"
+      className={`label-container rounded-sm overflow-hidden shadow-md print:shadow-none ${
+        isThermal ? 'label-thermal' : ''
+      }`}
       style={{
-        width: `${settings.labelWidth}mm`,
-        minHeight: `${settings.labelHeight}mm`,
+        width: `${dims.width}mm`,
+        minHeight: dims.height > 0 ? `${dims.height}mm` : undefined,
       }}
     >
       {/* Header */}
-      <div className="label-header px-4 py-3 flex items-center justify-between">
+      <div className={`label-header px-4 py-3 flex items-center justify-between ${isThermal ? '!bg-foreground !text-background' : ''}`}>
         <div className="flex items-center gap-2">
           {settings.showLogo && logoUrl && (
             <img src={logoUrl} alt="Logo" className="h-8 object-contain" />
@@ -142,9 +146,9 @@ const CaseLabel = ({ resolvedCase: rc, settings, caseIndex, totalCases, logoUrl 
         </div>
       )}
 
-      {/* Barcode */}
+      {/* Barcode — uses the case's asset code */}
       {settings.showBarcode && (
-        <div className="px-4 py-3 flex flex-col items-center">
+        <div className="barcode-wrapper px-4 py-3 flex flex-col items-center">
           <Barcode
             value={rc.caseAssetCode}
             width={1.5}
@@ -152,7 +156,7 @@ const CaseLabel = ({ resolvedCase: rc, settings, caseIndex, totalCases, logoUrl 
             fontSize={12}
             font="JetBrains Mono"
             background="transparent"
-            lineColor="hsl(220, 25%, 15%)"
+            lineColor={isThermal ? '#000000' : '#f2f2f2'}
             margin={0}
           />
         </div>

@@ -137,3 +137,26 @@
   background: hsl(var(--label-header));
   color: hsl(var(--label-header-foreground));
 }
+
+/* Thermal label mode — black on white for thermal printers */
+.label-thermal {
+  background: white !important;
+  border-color: #000 !important;
+  color: #000 !important;
+}
+.label-thermal .label-header {
+  background: #000 !important;
+  color: #fff !important;
+}
+.label-thermal .text-foreground { color: #000 !important; }
+.label-thermal .text-muted-foreground { color: #444 !important; }
+.label-thermal .bg-muted\/50 { background: #f0f0f0 !important; }
+.label-thermal .bg-primary { background: #000 !important; }
+.label-thermal .text-primary-foreground { color: #fff !important; }
+.label-thermal .border-label-border { border-color: #ccc !important; }
+
+/* Print barcode override — ensure black lines on paper */
+@media print {
+  .barcode-wrapper svg rect { fill: #000 !important; }
+  .barcode-wrapper svg g rect { fill: #000 !important; }
+}
