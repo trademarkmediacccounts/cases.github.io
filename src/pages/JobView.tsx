@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   DndContext,
@@ -13,6 +13,7 @@ import {
   DragOverEvent,
 } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { useDroppable } from '@dnd-kit/core';
 import { useOrders } from '@/hooks/useOrders';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
@@ -25,10 +26,9 @@ import DraggableItem from '@/components/DraggableItem';
 import DroppableCase from '@/components/DroppableCase';
 import {
   ArrowLeft, Save, Loader2, Package, GripVertical,
-  CheckSquare, MousePointerClick, Calendar, MapPin,
+  CheckSquare, Calendar, MapPin,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { useDroppable } from '@dnd-kit/core';
 
 const UNASSIGNED_ID = '__unassigned__';
 
@@ -39,6 +39,7 @@ const JobView = () => {
   const { orders } = useOrders();
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
+  const [loadingAssignments, setLoadingAssignments] = useState(true);
   const [mode, setMode] = useState<'drag' | 'checkbox'>('drag');
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
 
@@ -86,6 +87,61 @@ const JobView = () => {
   // Assignments: caseId -> itemId[]
   const [assignments, setAssignments] = useState<Record<string, string[]>>({});
 
+  // ── Load saved assignments ──
+  useEffect(() => {
+    if (!user || !order) {
+      setLoadingAssignments(false);
+      return;
+    }
+    const load = async () => {
+      setLoadingAssignments(true);
+      try {
+        const { data } = await supabase
+          .from('case_assignments')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('order_id', order.id);
+
+        if (data && data.length > 0) {
+          const loaded: Record<string, string[]> = {};
+          const electedSet = new Set<string>();
+
+          data.forEach((row: any) => {
+            // Find the case id by matching case_item_name
+            const caseId = Array.from(itemsById.entries()).find(
+              ([, item]) => item.name === row.case_item_name
+            )?.[0];
+
+            if (!caseId) return;
+
+            // If this case isn't a natural case, elect it
+            if (!caseIds.includes(caseId)) {
+              electedSet.add(caseId);
+            }
+
+            const items: { id: string }[] =
+              typeof row.assigned_items === 'string'
+                ? JSON.parse(row.assigned_items)
+                : row.assigned_items;
+
+            loaded[caseId] = items
+              .map((a: any) => a.id)
+              .filter((id: string) => itemsById.has(id));
+          });
+
+          setElectedCaseIds(electedSet);
+          setAssignments(loaded);
+          toast({ title: 'Loaded', description: 'Previous assignments restored.' });
+        }
+      } catch {
+        // Silently fail — user can reassign
+      } finally {
+        setLoadingAssignments(false);
+      }
+    };
+    load();
+  }, [user, order?.id, itemsById.size]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Compute unassigned items
   const assignedSet = useMemo(() => {
     const set = new Set<string>();
@@ -107,7 +163,6 @@ const JobView = () => {
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } })
   );
 
-  // Find which container an item is in
   const findContainer = useCallback(
     (itemId: string): string => {
       for (const [caseId, items] of Object.entries(assignments)) {
@@ -125,59 +180,42 @@ const JobView = () => {
   const handleDragOver = (event: DragOverEvent) => {
     const { active, over } = event;
     if (!over) return;
-
     const activeId = active.id as string;
     const overId = over.id as string;
-
-    // Don't allow dragging cases
     if (allCaseIds.includes(activeId)) return;
 
     const activeContainer = findContainer(activeId);
     let overContainer: string;
-
-    // Determine target container
     if (allCaseIds.includes(overId) || overId === UNASSIGNED_ID) {
       overContainer = overId;
     } else {
       overContainer = findContainer(overId);
     }
-
     if (activeContainer === overContainer) return;
 
     setAssignments((prev) => {
       const next = { ...prev };
-
-      // Remove from source
       if (activeContainer !== UNASSIGNED_ID) {
         next[activeContainer] = (next[activeContainer] || []).filter((id) => id !== activeId);
       }
-
-      // Add to target
       if (overContainer !== UNASSIGNED_ID) {
         const targetItems = [...(next[overContainer] || [])];
-        if (!targetItems.includes(activeId)) {
-          targetItems.push(activeId);
-        }
+        if (!targetItems.includes(activeId)) targetItems.push(activeId);
         next[overContainer] = targetItems;
       }
-
       return next;
     });
   };
 
-  const handleDragEnd = (event: DragEndEvent) => {
-    setActiveDragId(null);
-  };
+  const handleDragEnd = () => setActiveDragId(null);
 
   const toggleCheckboxAssign = (itemId: string) => {
     if (!activeCaseForCheckbox) return;
     setAssignments((prev) => {
       const next = { ...prev };
-      // Remove from any existing case
       for (const key of Object.keys(next)) {
         next[key] = next[key].filter((id) => id !== itemId);
       }
-      // Add to active case if not already there
       const current = next[activeCaseForCheckbox] || [];
       if (!current.includes(itemId)) {
         next[activeCaseForCheckbox] = [...current, itemId];
@@ -208,7 +246,6 @@ const JobView = () => {
     setSaving(true);
     try {
       await supabase.from('case_assignments').delete().eq('user_id', user.id).eq('order_id', order.id);
-
       const inserts = allCaseIds.map((caseId) => {
         const caseItem = itemsById.get(caseId);
         const itemIds = assignments[caseId] || [];
@@ -224,12 +261,10 @@ const JobView = () => {
           ),
         };
       });
-
       if (inserts.length > 0) {
         const { error } = await supabase.from('case_assignments').insert(inserts);
         if (error) throw error;
       }
-
       toast({ title: 'Saved', description: 'Case assignments saved successfully.' });
     } catch (err: any) {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
@@ -278,7 +313,6 @@ const JobView = () => {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {/* Mode toggle */}
             <div className="flex border border-border rounded-md overflow-hidden">
               <button
                 onClick={() => setMode('drag')}
@@ -308,206 +342,200 @@ const JobView = () => {
       </header>
 
       <div className="container max-w-6xl mx-auto px-4 py-6">
-        {/* Elect cases section */}
-        {allContentIds.length > 0 && contentIds.some((id) => !caseIds.includes(id)) && (
-          <div className="mb-6 bg-card border border-border rounded-lg p-4">
-            <h3 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
-              <Package className="h-4 w-4 text-accent" />
-              Designate Additional Cases
-            </h3>
-            <p className="text-xs text-muted-foreground mb-3">
-              Check any items that should be treated as cases/containers.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {contentIds.map((id) => {
-                const item = itemsById.get(id);
-                if (!item) return null;
-                const elected = electedCaseIds.has(id);
-                return (
-                  <button
-                    key={id}
-                    onClick={() => toggleElectCase(id)}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-md border text-sm transition-all ${
-                      elected
-                        ? 'border-accent bg-accent/10 text-accent'
-                        : 'border-border bg-card text-foreground hover:border-accent/50'
-                    }`}
-                  >
-                    <Checkbox checked={elected} className="pointer-events-none" />
-                    <span className="truncate max-w-[200px]">{item.name}</span>
-                  </button>
-                );
-              })}
-            </div>
+        {loadingAssignments ? (
+          <div className="flex items-center justify-center py-16">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <span className="ml-3 text-sm text-muted-foreground">Loading assignments…</span>
           </div>
-        )}
-
-        {mode === 'drag' ? (
-          /* ─── Drag & Drop Mode ─── */
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragStart={handleDragStart}
-            onDragOver={handleDragOver}
-            onDragEnd={handleDragEnd}
-          >
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              {/* Unassigned items */}
-              <div className="lg:col-span-4">
-                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
-                  Unassigned ({unassignedIds.length})
+        ) : (
+          <>
+            {/* Elect cases section */}
+            {allContentIds.length > 0 && contentIds.some((id) => !caseIds.includes(id)) && (
+              <div className="mb-6 bg-card border border-border rounded-lg p-4">
+                <h3 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
+                  <Package className="h-4 w-4 text-accent" />
+                  Designate Additional Cases
                 </h3>
-                <UnassignedDropZone>
-                  <SortableContext items={unassignedIds} strategy={verticalListSortingStrategy}>
-                    <div className="space-y-1.5 min-h-[100px]">
-                      {unassignedIds.length === 0 ? (
-                        <p className="text-xs text-muted-foreground text-center py-8">
-                          All items assigned ✓
-                        </p>
-                      ) : (
-                        unassignedIds.map((id) => {
-                          const item = itemsById.get(id);
-                          if (!item) return null;
-                          return <DraggableItem key={id} id={id} item={item} />;
-                        })
-                      )}
-                    </div>
-                  </SortableContext>
-                </UnassignedDropZone>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Check any items that should be treated as cases/containers.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {contentIds.map((id) => {
+                    const item = itemsById.get(id);
+                    if (!item) return null;
+                    const elected = electedCaseIds.has(id);
+                    return (
+                      <button
+                        key={id}
+                        onClick={() => toggleElectCase(id)}
+                        className={`flex items-center gap-2 px-3 py-2 rounded-md border text-sm transition-all ${
+                          elected
+                            ? 'border-accent bg-accent/10 text-accent'
+                            : 'border-border bg-card text-foreground hover:border-accent/50'
+                        }`}
+                      >
+                        <Checkbox checked={elected} className="pointer-events-none" />
+                        <span className="truncate max-w-[200px]">{item.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
+            )}
 
-              {/* Cases */}
-              <div className="lg:col-span-8 space-y-4">
-                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
-                  Cases ({allCaseIds.length})
-                </h3>
-                {allCaseIds.length === 0 ? (
-                  <div className="border border-dashed border-border rounded-lg p-8 text-center">
-                    <p className="text-sm text-muted-foreground">
-                      No cases found. Designate items as cases above.
-                    </p>
+            {mode === 'drag' ? (
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragStart={handleDragStart}
+                onDragOver={handleDragOver}
+                onDragEnd={handleDragEnd}
+              >
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                  {/* Unassigned items */}
+                  <div className="lg:col-span-4">
+                    <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+                      Unassigned ({unassignedIds.length})
+                    </h3>
+                    <UnassignedDropZone>
+                      <SortableContext items={unassignedIds} strategy={verticalListSortingStrategy}>
+                        <div className="space-y-1.5 min-h-[100px]">
+                          {unassignedIds.length === 0 ? (
+                            <p className="text-xs text-muted-foreground text-center py-8">All items assigned ✓</p>
+                          ) : (
+                            unassignedIds.map((id) => {
+                              const item = itemsById.get(id);
+                              if (!item) return null;
+                              return <DraggableItem key={id} id={id} item={item} />;
+                            })
+                          )}
+                        </div>
+                      </SortableContext>
+                    </UnassignedDropZone>
                   </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                  {/* Cases */}
+                  <div className="lg:col-span-8 space-y-4">
+                    <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+                      Cases ({allCaseIds.length})
+                    </h3>
+                    {allCaseIds.length === 0 ? (
+                      <div className="border border-dashed border-border rounded-lg p-8 text-center">
+                        <p className="text-sm text-muted-foreground">No cases found. Designate items as cases above.</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {allCaseIds.map((caseId) => {
+                          const caseItem = itemsById.get(caseId);
+                          if (!caseItem) return null;
+                          return (
+                            <DroppableCase
+                              key={caseId}
+                              caseId={caseId}
+                              caseItem={caseItem}
+                              assignedItemIds={assignments[caseId] || []}
+                              allItems={itemsById}
+                            />
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <DragOverlay>
+                  {activeDragId && activeItem ? (
+                    <DraggableItem id={activeDragId} item={activeItem} isOverlay />
+                  ) : null}
+                </DragOverlay>
+              </DndContext>
+            ) : (
+              /* ─── Checkbox Mode ─── */
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Select a Case</h3>
+                  <div className="space-y-2">
                     {allCaseIds.map((caseId) => {
                       const caseItem = itemsById.get(caseId);
                       if (!caseItem) return null;
+                      const count = (assignments[caseId] || []).length;
+                      const isActive = activeCaseForCheckbox === caseId;
                       return (
-                        <DroppableCase
+                        <button
                           key={caseId}
-                          caseId={caseId}
-                          caseItem={caseItem}
-                          assignedItemIds={assignments[caseId] || []}
-                          allItems={itemsById}
-                        />
+                          onClick={() => setActiveCaseForCheckbox(caseId)}
+                          className={`w-full flex items-center justify-between p-4 rounded-lg border transition-all text-left ${
+                            isActive ? 'border-accent bg-accent/10' : 'border-border bg-card hover:border-accent/50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Package className={`h-4 w-4 ${isActive ? 'text-accent' : 'text-muted-foreground'}`} />
+                            <div>
+                              <p className="font-semibold text-sm text-foreground">{caseItem.name}</p>
+                              {caseItem.serialNumber && (
+                                <p className="text-xs text-muted-foreground font-mono">{caseItem.serialNumber}</p>
+                              )}
+                            </div>
+                          </div>
+                          <Badge variant={isActive ? 'default' : 'secondary'} className="font-mono">
+                            {count} items
+                          </Badge>
+                        </button>
+                      );
+                    })}
+                    {allCaseIds.length === 0 && (
+                      <p className="text-sm text-muted-foreground text-center py-8">No cases. Designate items as cases above.</p>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+                    {activeCaseForCheckbox ? `Assign to: ${itemsById.get(activeCaseForCheckbox)?.name}` : 'Select a case first'}
+                  </h3>
+                  <div className="space-y-1.5">
+                    {allContentIds.map((id) => {
+                      const item = itemsById.get(id);
+                      if (!item) return null;
+                      const currentCase = Object.entries(assignments).find(([, ids]) => ids.includes(id));
+                      const isAssignedHere = currentCase?.[0] === activeCaseForCheckbox;
+                      const isAssignedElsewhere = currentCase && currentCase[0] !== activeCaseForCheckbox;
+                      return (
+                        <div
+                          key={id}
+                          className={`flex items-center gap-3 p-3 rounded-md border transition-colors ${
+                            isAssignedHere
+                              ? 'border-accent bg-accent/5'
+                              : isAssignedElsewhere
+                              ? 'border-muted opacity-50'
+                              : 'border-border'
+                          }`}
+                        >
+                          <Checkbox
+                            checked={isAssignedHere}
+                            disabled={!activeCaseForCheckbox || !!isAssignedElsewhere}
+                            onCheckedChange={() => toggleCheckboxAssign(id)}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-foreground truncate">{item.name}</p>
+                            <p className="text-xs text-muted-foreground font-mono">
+                              ×{item.quantity}
+                              {item.serialNumber && ` · ${item.serialNumber}`}
+                            </p>
+                          </div>
+                          {isAssignedElsewhere && (
+                            <Badge variant="outline" className="text-xs shrink-0">
+                              In: {itemsById.get(currentCase[0])?.name}
+                            </Badge>
+                          )}
+                        </div>
                       );
                     })}
                   </div>
-                )}
+                </div>
               </div>
-            </div>
-
-            <DragOverlay>
-              {activeDragId && activeItem ? (
-                <DraggableItem id={activeDragId} item={activeItem} isOverlay />
-              ) : null}
-            </DragOverlay>
-          </DndContext>
-        ) : (
-          /* ─── Checkbox Mode ─── */
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Case selector */}
-            <div>
-              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
-                Select a Case
-              </h3>
-              <div className="space-y-2">
-                {allCaseIds.map((caseId) => {
-                  const caseItem = itemsById.get(caseId);
-                  if (!caseItem) return null;
-                  const count = (assignments[caseId] || []).length;
-                  const isActive = activeCaseForCheckbox === caseId;
-                  return (
-                    <button
-                      key={caseId}
-                      onClick={() => setActiveCaseForCheckbox(caseId)}
-                      className={`w-full flex items-center justify-between p-4 rounded-lg border transition-all text-left ${
-                        isActive
-                          ? 'border-accent bg-accent/10'
-                          : 'border-border bg-card hover:border-accent/50'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <Package className={`h-4 w-4 ${isActive ? 'text-accent' : 'text-muted-foreground'}`} />
-                        <div>
-                          <p className="font-semibold text-sm text-foreground">{caseItem.name}</p>
-                          {caseItem.serialNumber && (
-                            <p className="text-xs text-muted-foreground font-mono">{caseItem.serialNumber}</p>
-                          )}
-                        </div>
-                      </div>
-                      <Badge variant={isActive ? 'default' : 'secondary'} className="font-mono">
-                        {count} items
-                      </Badge>
-                    </button>
-                  );
-                })}
-                {allCaseIds.length === 0 && (
-                  <p className="text-sm text-muted-foreground text-center py-8">
-                    No cases. Designate items as cases above.
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* Assign items */}
-            <div>
-              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
-                {activeCaseForCheckbox
-                  ? `Assign to: ${itemsById.get(activeCaseForCheckbox)?.name}`
-                  : 'Select a case first'}
-              </h3>
-              <div className="space-y-1.5">
-                {allContentIds.map((id) => {
-                  const item = itemsById.get(id);
-                  if (!item) return null;
-                  const currentCase = Object.entries(assignments).find(([, ids]) => ids.includes(id));
-                  const isAssignedHere = currentCase?.[0] === activeCaseForCheckbox;
-                  const isAssignedElsewhere = currentCase && currentCase[0] !== activeCaseForCheckbox;
-                  return (
-                    <div
-                      key={id}
-                      className={`flex items-center gap-3 p-3 rounded-md border transition-colors ${
-                        isAssignedHere
-                          ? 'border-accent bg-accent/5'
-                          : isAssignedElsewhere
-                          ? 'border-muted opacity-50'
-                          : 'border-border'
-                      }`}
-                    >
-                      <Checkbox
-                        checked={isAssignedHere}
-                        disabled={!activeCaseForCheckbox || !!isAssignedElsewhere}
-                        onCheckedChange={() => toggleCheckboxAssign(id)}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-foreground truncate">{item.name}</p>
-                        <p className="text-xs text-muted-foreground font-mono">
-                          ×{item.quantity}
-                          {item.serialNumber && ` · ${item.serialNumber}`}
-                        </p>
-                      </div>
-                      {isAssignedElsewhere && (
-                        <Badge variant="outline" className="text-xs shrink-0">
-                          In: {itemsById.get(currentCase[0])?.name}
-                        </Badge>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
+            )}
+          </>
         )}
       </div>
     </div>
