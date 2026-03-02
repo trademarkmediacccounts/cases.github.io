@@ -10,6 +10,7 @@ import { useOrders } from '@/hooks/useOrders';
 import { Button } from '@/components/ui/button';
 import { Printer, Tag, Search, CheckSquare, Settings, LogOut, RefreshCw, AlertCircle, Loader2, Eye } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import ThermalPrintButton from '@/components/ThermalPrintButton';
 
 const Index = () => {
   const { orders, loading, error, usingMockData, refetch } = useOrders();
@@ -88,6 +89,7 @@ const Index = () => {
             <Button variant="ghost" size="icon" onClick={signOut} title="Sign out">
               <LogOut className="h-4 w-4" />
             </Button>
+            <ThermalPrintButton cases={resolvedCases} settings={settings} />
             <Button
               onClick={handlePrint}
               disabled={resolvedCases.length === 0}
