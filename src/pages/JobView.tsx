@@ -10,7 +10,7 @@ import { useDroppable } from '@dnd-kit/core';
 import { useOrders } from '@/hooks/useOrders';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
-import { CaseItem, ResolvedCase, LabelSettings, defaultLabelSettings } from '@/types/rental';
+import { CaseItem, ResolvedCase, LabelSettings, defaultLabelSettings, getContainerAssetCode } from '@/types/rental';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -134,7 +134,7 @@ const JobView = () => {
           venue: order.venue,
           status: order.status,
           caseItem,
-          caseAssetCode: caseItem.serialNumber ?? order.caseAssetCode,
+          caseAssetCode: getContainerAssetCode(caseItem, order.caseAssetCode),
           contents,
           totalWeight: Math.round(totalWeight * 100) / 100,
           notes: order.notes,

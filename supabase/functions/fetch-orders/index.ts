@@ -236,6 +236,7 @@ async function fetchOdooOrders(cred: any): Promise<RentalOrder[]> {
       items: lines.map((line: any) => ({
         name: cleanOdooItemName(line.product_id?.[1] || line.name || "Product"),
         quantity: line.product_uom_qty || 1,
+        serialNumber: extractOdooContainerAssetCode(line),
         productCategory: detectProductCategory(line.name || line.product_id?.[1] || ""),
       })),
       notes: ro.note ? ro.note.replace(/<[^>]*>/g, "") : undefined,
@@ -253,6 +254,28 @@ function cleanOdooItemName(name: string): string {
     .replace(/\s*\(\d{1,2}\/\d{1,2}\/\d{2,4}.*?-.*?\d{1,2}\/\d{1,2}\/\d{2,4}.*?\)\s*/g, "")
     .replace(/\s*\(\d{4}-\d{2}-\d{2}.*?-.*?\d{4}-\d{2}-\d{2}.*?\)\s*/g, "")
     .trim();
+}
+
+// ── Odoo Asset/Serial Extraction ───────────────────────────────────
+
+function extractOdooContainerAssetCode(line: any): string | undefined {
+  const fromName = (line.name || "").toString();
+  const fromProduct = line.product_id?.[1] ? String(line.product_id[1]) : "";
+
+  const candidates = [fromName, fromProduct].filter(Boolean);
+
+  for (const text of candidates) {
+    const tagged = text.match(/(?:asset|serial|sn)\s*[:#-]?\s*([A-Za-z0-9][A-Za-z0-9._/-]*)/i)?.[1];
+    if (tagged) return tagged;
+
+    const bracketed = text.match(/\[\s*([A-Za-z0-9][A-Za-z0-9._/-]*)\s*\]/)?.[1];
+    if (bracketed) return bracketed;
+
+    const codeLike = text.match(/\b[A-Za-z]{1,6}[\s_-]?\d{2,}\b/)?.[0];
+    if (codeLike) return codeLike.replace(/\s+/g, "");
+  }
+
+  return undefined;
 }
 
 // ── Product Category Detection ─────────────────────────────────────
