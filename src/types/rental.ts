@@ -121,11 +121,7 @@ export function getEffectiveDimensions(settings: LabelSettings): { width: number
 export function getContainerAssetCode(caseItem: CaseItem, fallbackCode: string): string {
   const serial = caseItem.serialNumber?.trim();
   if (serial) return serial;
-
-  const inferredFromName = caseItem.name.match(/[A-Za-z]{1,6}[\s_-]?\d{2,}/)?.[0];
-  if (inferredFromName) return inferredFromName.replace(/\s+/g, '');
-
-  return caseItem.name?.trim() || fallbackCode;
+  return fallbackCode;
 }
 
 /**
