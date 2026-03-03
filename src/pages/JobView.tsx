@@ -33,7 +33,7 @@ const JobView = () => {
   const { orderId } = useParams<{ orderId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { orders } = useOrders();
+  const { orders, loading: ordersLoading } = useOrders();
   const { toast } = useToast();
   const printRef = useRef<HTMLDivElement>(null);
 
@@ -244,8 +244,17 @@ const JobView = () => {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center space-y-4">
-          <p className="text-muted-foreground">Order not found</p>
-          <Button variant="outline" onClick={() => navigate('/')}><ArrowLeft className="h-4 w-4 mr-2" /> Back</Button>
+          {ordersLoading ? (
+            <>
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mx-auto" />
+              <p className="text-muted-foreground text-sm">Loading order…</p>
+            </>
+          ) : (
+            <>
+              <p className="text-muted-foreground">Order not found</p>
+              <Button variant="outline" onClick={() => navigate('/')}><ArrowLeft className="h-4 w-4 mr-2" /> Back</Button>
+            </>
+          )}
         </div>
       </div>
     );

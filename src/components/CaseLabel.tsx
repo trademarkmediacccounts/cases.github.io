@@ -156,7 +156,7 @@ const CaseLabel = ({ resolvedCase: rc, settings, caseIndex, totalCases, logoUrl 
             fontSize={12}
             font="JetBrains Mono"
             background="transparent"
-            lineColor={isThermal ? '#000000' : '#f2f2f2'}
+            lineColor="#000000"
             margin={0}
           />
         </div>
