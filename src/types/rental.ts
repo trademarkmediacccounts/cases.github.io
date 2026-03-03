@@ -116,6 +116,19 @@ export function getEffectiveDimensions(settings: LabelSettings): { width: number
 }
 
 /**
+ * Picks the best barcode value for a container/case label.
+ */
+export function getContainerAssetCode(caseItem: CaseItem, fallbackCode: string): string {
+  const serial = caseItem.serialNumber?.trim();
+  if (serial) return serial;
+
+  const inferredFromName = caseItem.name.match(/[A-Za-z]{1,6}[\s_-]?\d{2,}/)?.[0];
+  if (inferredFromName) return inferredFromName.replace(/\s+/g, '');
+
+  return caseItem.name?.trim() || fallbackCode;
+}
+
+/**
  * Resolves an order's items into cases.
  */
 export function resolveOrderCases(order: RentalOrder): ResolvedCase[] {
@@ -173,7 +186,7 @@ export function resolveOrderCases(order: RentalOrder): ResolvedCase[] {
       venue: order.venue,
       status: order.status,
       caseItem,
-      caseAssetCode: caseItem.serialNumber ?? order.caseAssetCode,
+      caseAssetCode: getContainerAssetCode(caseItem, order.caseAssetCode),
       contents: assignedContents,
       totalWeight: Math.round(totalWeight * 100) / 100,
       notes: order.notes,

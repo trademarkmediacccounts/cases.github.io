@@ -155,8 +155,9 @@
 .label-thermal .text-primary-foreground { color: #fff !important; }
 .label-thermal .border-label-border { border-color: #ccc !important; }
 
-/* Print barcode override — ensure black lines on paper */
+/* Print barcode override — ensure crisp black bars without blacking the whole SVG */
 @media print {
-  .barcode-wrapper svg rect { fill: #000 !important; }
+  .barcode-wrapper svg > rect:first-of-type { fill: transparent !important; }
   .barcode-wrapper svg g rect { fill: #000 !important; }
+  .barcode-wrapper svg text { fill: #000 !important; }
 }
