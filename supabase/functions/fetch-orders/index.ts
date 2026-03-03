@@ -206,6 +206,8 @@ async function fetchOdooOrders(cred: any): Promise<RentalOrder[]> {
                 "name",
                 "product_uom_qty",
                 "product_template_id",
+                "reserved_lot_ids",
+                "pickedup_lot_ids",
               ],
             },
           ],
@@ -215,6 +217,49 @@ async function fetchOdooOrders(cred: any): Promise<RentalOrder[]> {
     });
     const linesData = await linesRes.json();
     const lines = linesData.result || [];
+
+    // Collect all lot IDs we need to resolve
+    const allLotIds = new Set<number>();
+    for (const line of lines) {
+      for (const id of (line.pickedup_lot_ids || [])) allLotIds.add(id);
+      for (const id of (line.reserved_lot_ids || [])) allLotIds.add(id);
+    }
+
+    // Resolve lot IDs to serial numbers via stock.lot
+    const lotMap = new Map<number, string>();
+    if (allLotIds.size > 0) {
+      try {
+        const lotRes = await fetch(`${url}/jsonrpc`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            method: "call",
+            params: {
+              service: "object",
+              method: "execute_kw",
+              args: [
+                cred.database_name,
+                uid,
+                cred.api_key,
+                "stock.lot",
+                "read",
+                [Array.from(allLotIds)],
+                { fields: ["name", "ref"] },
+              ],
+            },
+            id: 4,
+          }),
+        });
+        const lotData = await lotRes.json();
+        for (const lot of (lotData.result || [])) {
+          // Prefer ref (asset code) over name (serial) if available
+          lotMap.set(lot.id, lot.ref || lot.name || "");
+        }
+      } catch {
+        // If stock.lot read fails, continue without serials
+      }
+    }
 
     const statusMap: Record<string, RentalOrder["status"]> = {
       confirmed: "confirmed",
@@ -233,12 +278,18 @@ async function fetchOdooOrders(cred: any): Promise<RentalOrder[]> {
       venue: "",
       caseAssetCode: `ODO-${ro.id}`,
       status: statusMap[ro.rental_status] || "confirmed",
-      items: lines.map((line: any) => ({
-        name: cleanOdooItemName(line.product_id?.[1] || line.name || "Product"),
-        quantity: line.product_uom_qty || 1,
-        serialNumber: extractOdooContainerAssetCode(line),
-        productCategory: detectProductCategory(line.name || line.product_id?.[1] || ""),
-      })),
+      items: lines.map((line: any) => {
+        // Resolve serial: prefer pickedup lots, then reserved lots
+        const lotIds = (line.pickedup_lot_ids?.length ? line.pickedup_lot_ids : line.reserved_lot_ids) || [];
+        const serialNumber = lotIds.length > 0 ? lotMap.get(lotIds[0]) || undefined : undefined;
+
+        return {
+          name: cleanOdooItemName(line.product_id?.[1] || line.name || "Product"),
+          quantity: line.product_uom_qty || 1,
+          serialNumber,
+          productCategory: detectProductCategory(line.name || line.product_id?.[1] || ""),
+        };
+      }),
       notes: ro.note ? ro.note.replace(/<[^>]*>/g, "") : undefined,
     });
   }
@@ -254,28 +305,6 @@ function cleanOdooItemName(name: string): string {
     .replace(/\s*\(\d{1,2}\/\d{1,2}\/\d{2,4}.*?-.*?\d{1,2}\/\d{1,2}\/\d{2,4}.*?\)\s*/g, "")
     .replace(/\s*\(\d{4}-\d{2}-\d{2}.*?-.*?\d{4}-\d{2}-\d{2}.*?\)\s*/g, "")
     .trim();
-}
-
-// ── Odoo Asset/Serial Extraction ───────────────────────────────────
-
-function extractOdooContainerAssetCode(line: any): string | undefined {
-  const fromName = (line.name || "").toString();
-  const fromProduct = line.product_id?.[1] ? String(line.product_id[1]) : "";
-
-  const candidates = [fromName, fromProduct].filter(Boolean);
-
-  for (const text of candidates) {
-    const tagged = text.match(/(?:asset|serial|sn)\s*[:#-]?\s*([A-Za-z0-9][A-Za-z0-9._/-]*)/i)?.[1];
-    if (tagged) return tagged;
-
-    const bracketed = text.match(/\[\s*([A-Za-z0-9][A-Za-z0-9._/-]*)\s*\]/)?.[1];
-    if (bracketed) return bracketed;
-
-    const codeLike = text.match(/\b[A-Za-z]{1,6}[\s_-]?\d{2,}\b/)?.[0];
-    if (codeLike) return codeLike.replace(/\s+/g, "");
-  }
-
-  return undefined;
 }
 
 // ── Product Category Detection ─────────────────────────────────────
