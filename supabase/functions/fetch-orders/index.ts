@@ -181,6 +181,7 @@ async function fetchOdooOrders(cred: any): Promise<RentalOrder[]> {
     const productBarcodeMap = new Map<number, string>();
     const productTemplateMap = new Map<number, number>();
     const templateBarcodeMap = new Map<number, string>();
+    const templateWeightMap = new Map<number, number>();
 
     if (productIds.size > 0) {
       try {
@@ -206,17 +207,20 @@ async function fetchOdooOrders(cred: any): Promise<RentalOrder[]> {
           const templates = await odooRpc(url, rpcArgs(
             "product.template", "read",
             [Array.from(templateIds)],
-            { fields: ["barcode"] }
+            { fields: ["barcode", "weight"] }
           )) || [];
 
           for (const template of templates) {
             if (template.barcode) {
               templateBarcodeMap.set(template.id, template.barcode);
             }
+            if (template.weight && template.weight > 0) {
+              templateWeightMap.set(template.id, template.weight);
+            }
           }
         }
       } catch {
-        // Continue without barcode enrichment if product/template reads fail
+        // Continue without barcode/weight enrichment if product/template reads fail
       }
     }
 
@@ -228,11 +232,13 @@ async function fetchOdooOrders(cred: any): Promise<RentalOrder[]> {
         (templateId ? templateBarcodeMap.get(templateId) : undefined);
 
       const itemName = cleanOdooItemName(line.product_id?.[1] || line.name || "Product");
+      const weight = templateId ? templateWeightMap.get(templateId) : undefined;
 
       return {
         name: itemName,
         quantity: line.product_uom_qty || 1,
         serialNumber: barcode || undefined,
+        weight: weight || undefined,
         productCategory: detectProductCategory(itemName),
       };
     });
