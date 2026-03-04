@@ -57,7 +57,6 @@ Deno.serve(async (req) => {
     }
     const userId = claimsData.claims.sub;
 
-    // Fetch user's API credentials
     const { data: credentials, error: credError } = await supabase
       .from("api_credentials")
       .select("*")
@@ -67,10 +66,7 @@ Deno.serve(async (req) => {
     if (credError) {
       return new Response(
         JSON.stringify({ error: "Failed to fetch credentials" }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
@@ -80,10 +76,7 @@ Deno.serve(async (req) => {
           orders: [],
           message: "No API credentials configured. Go to Settings to add them.",
         }),
-        {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
@@ -106,10 +99,7 @@ Deno.serve(async (req) => {
 
     return new Response(
       JSON.stringify({ orders: allOrders, errors: errors.length ? errors : undefined }),
-      {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err: any) {
     return new Response(JSON.stringify({ error: err.message }), {
@@ -119,188 +109,183 @@ Deno.serve(async (req) => {
   }
 });
 
-// ── Odoo JSON-RPC ──────────────────────────────────────────────────
+// ── Odoo JSON-RPC helper ───────────────────────────────────────────
+
+async function odooRpc(url: string, params: any, id = 1): Promise<any> {
+  const res = await fetch(`${url}/jsonrpc`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", method: "call", params, id }),
+  });
+  const data = await res.json();
+  if (data.error) {
+    throw new Error(data.error.message || JSON.stringify(data.error));
+  }
+  return data.result;
+}
+
+// ── Odoo fetch ─────────────────────────────────────────────────────
 
 async function fetchOdooOrders(cred: any): Promise<RentalOrder[]> {
   const url = cred.api_url.replace(/\/$/, "");
 
-  // Authenticate to get uid
-  const authRes = await fetch(`${url}/jsonrpc`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      method: "call",
-      params: {
-        service: "common",
-        method: "authenticate",
-        args: [cred.database_name, cred.username, cred.api_key, {}],
-      },
-      id: 1,
-    }),
+  // Authenticate
+  const uid = await odooRpc(url, {
+    service: "common",
+    method: "authenticate",
+    args: [cred.database_name, cred.username, cred.api_key, {}],
   });
-  const authData = await authRes.json();
-  const uid = authData.result;
   if (!uid) throw new Error("Odoo authentication failed");
 
-  // Search rental orders
-  const searchRes = await fetch(`${url}/jsonrpc`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      method: "call",
-      params: {
-        service: "object",
-        method: "execute_kw",
-        args: [
-          cred.database_name,
-          uid,
-          cred.api_key,
-          "sale.order",
-          "search_read",
-          [[["is_rental_order", "=", true]]],
-          {
-            fields: [
-              "name",
-              "partner_id",
-              "rental_status",
-              "date_order",
-              "rental_return_date",
-              "note",
-              "order_line",
-            ],
-            limit: 50,
-            order: "date_order desc",
-          },
-        ],
-      },
-      id: 2,
-    }),
+  const rpcArgs = (model: string, method: string, args: any[], kwargs: any = {}) => ({
+    service: "object",
+    method: "execute_kw",
+    args: [cred.database_name, uid, cred.api_key, model, method, args, kwargs],
   });
-  const searchData = await searchRes.json();
-  const rentalOrders = searchData.result || [];
 
-  // For each order, fetch order lines with product details
+  // Search rental orders
+  const rentalOrders = await odooRpc(url, rpcArgs(
+    "sale.order", "search_read",
+    [[["is_rental_order", "=", true]]],
+    {
+      fields: ["name", "partner_id", "rental_status", "date_order", "rental_return_date", "note", "order_line"],
+      limit: 50,
+      order: "date_order desc",
+    }
+  )) || [];
+
   const orders: RentalOrder[] = [];
-  for (const ro of rentalOrders) {
-    const linesRes = await fetch(`${url}/jsonrpc`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        method: "call",
-        params: {
-          service: "object",
-          method: "execute_kw",
-          args: [
-            cred.database_name,
-            uid,
-            cred.api_key,
-            "sale.order.line",
-            "read",
-            [ro.order_line],
-            {
-              fields: [
-                "product_id",
-                "name",
-                "product_uom_qty",
-                "product_template_id",
-                "reserved_lot_ids",
-                "pickedup_lot_ids",
-              ],
-            },
-          ],
-        },
-        id: 3,
-      }),
-    });
-    const linesData = await linesRes.json();
-    const lines = linesData.result || [];
 
-    // Collect all lot IDs we need to resolve
-    const allLotIds = new Set<number>();
-    for (const line of lines) {
-      for (const id of (line.pickedup_lot_ids || [])) allLotIds.add(id);
-      for (const id of (line.reserved_lot_ids || [])) allLotIds.add(id);
+  for (const ro of rentalOrders) {
+    if (!ro.order_line?.length) {
+      orders.push(buildOdooOrder(ro, []));
+      continue;
     }
 
-    // Resolve lot IDs to serial numbers via stock.lot
-    const lotMap = new Map<number, string>();
-    if (allLotIds.size > 0) {
+    // Fetch order lines — basic fields first
+    let lines: any[] = [];
+    try {
+      lines = await odooRpc(url, rpcArgs(
+        "sale.order.line", "read",
+        [ro.order_line],
+        { fields: ["product_id", "name", "product_uom_qty", "product_template_id"] }
+      )) || [];
+    } catch (e) {
+      console.error(`Failed to read order lines for ${ro.name}:`, e);
+      orders.push(buildOdooOrder(ro, []));
+      continue;
+    }
+
+    // Collect unique product template IDs to fetch barcodes
+    const templateIds = new Set<number>();
+    for (const line of lines) {
+      const tmplId = line.product_template_id?.[0];
+      if (tmplId) templateIds.add(tmplId);
+    }
+
+    // Fetch barcodes from product.template
+    const barcodeMap = new Map<number, string>();
+    if (templateIds.size > 0) {
       try {
-        const lotRes = await fetch(`${url}/jsonrpc`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            method: "call",
-            params: {
-              service: "object",
-              method: "execute_kw",
-              args: [
-                cred.database_name,
-                uid,
-                cred.api_key,
-                "stock.lot",
-                "read",
-                [Array.from(allLotIds)],
-                { fields: ["name", "ref"] },
-              ],
-            },
-            id: 4,
-          }),
-        });
-        const lotData = await lotRes.json();
-        for (const lot of (lotData.result || [])) {
-          // Prefer ref (asset code) over name (serial) if available
-          lotMap.set(lot.id, lot.ref || lot.name || "");
+        const templates = await odooRpc(url, rpcArgs(
+          "product.template", "read",
+          [Array.from(templateIds)],
+          { fields: ["barcode"] }
+        )) || [];
+        for (const tmpl of templates) {
+          if (tmpl.barcode) {
+            barcodeMap.set(tmpl.id, tmpl.barcode);
+          }
         }
       } catch {
-        // If stock.lot read fails, continue without serials
+        // If product.template read fails, continue without barcodes
       }
     }
 
-    const statusMap: Record<string, RentalOrder["status"]> = {
-      confirmed: "confirmed",
-      pickup: "confirmed",
-      return: "in_progress",
-      returned: "returned",
-    };
+    // Also try to fetch lot/serial info (may fail on some Odoo setups)
+    const lotMap = new Map<number, string>();
+    try {
+      const linesWithLots = await odooRpc(url, rpcArgs(
+        "sale.order.line", "read",
+        [ro.order_line],
+        { fields: ["reserved_lot_ids", "pickedup_lot_ids"] }
+      )) || [];
 
-    orders.push({
-      id: `odoo-${ro.id}`,
-      orderRef: ro.name || `ODO-${ro.id}`,
-      customerName: ro.partner_id?.[1] || "Unknown Customer",
-      jobName: ro.name || "Rental Order",
-      jobDate: ro.date_order?.split(" ")[0] || new Date().toISOString().split("T")[0],
-      returnDate: ro.rental_return_date?.split(" ")[0] || "",
-      venue: "",
-      caseAssetCode: `ODO-${ro.id}`,
-      status: statusMap[ro.rental_status] || "confirmed",
-      items: lines.map((line: any) => {
-        // Resolve serial: prefer pickedup lots, then reserved lots
-        const lotIds = (line.pickedup_lot_ids?.length ? line.pickedup_lot_ids : line.reserved_lot_ids) || [];
-        const serialNumber = lotIds.length > 0 ? lotMap.get(lotIds[0]) || undefined : undefined;
+      const allLotIds = new Set<number>();
+      for (const line of linesWithLots) {
+        for (const id of (line.pickedup_lot_ids || [])) allLotIds.add(id);
+        for (const id of (line.reserved_lot_ids || [])) allLotIds.add(id);
+      }
 
-        return {
-          name: cleanOdooItemName(line.product_id?.[1] || line.name || "Product"),
-          quantity: line.product_uom_qty || 1,
-          serialNumber,
-          productCategory: detectProductCategory(line.name || line.product_id?.[1] || ""),
-        };
-      }),
-      notes: ro.note ? ro.note.replace(/<[^>]*>/g, "") : undefined,
+      if (allLotIds.size > 0) {
+        const lots = await odooRpc(url, rpcArgs(
+          "stock.lot", "read",
+          [Array.from(allLotIds)],
+          { fields: ["name", "ref"] }
+        )) || [];
+        for (const lot of lots) {
+          lotMap.set(lot.id, lot.ref || lot.name || "");
+        }
+      }
+
+      // Merge lot serials into lines
+      for (let i = 0; i < lines.length; i++) {
+        const lotLine = linesWithLots[i];
+        if (lotLine) {
+          lines[i]._lotIds = (lotLine.pickedup_lot_ids?.length ? lotLine.pickedup_lot_ids : lotLine.reserved_lot_ids) || [];
+        }
+      }
+    } catch {
+      // Lot fields not available on this Odoo instance — that's fine
+    }
+
+    const mappedItems = lines.map((line: any) => {
+      const tmplId = line.product_template_id?.[0];
+      // Priority: product.template barcode > lot serial
+      const barcode = tmplId ? barcodeMap.get(tmplId) : undefined;
+      const lotSerial = (line._lotIds?.length > 0) ? lotMap.get(line._lotIds[0]) : undefined;
+      const serialNumber = barcode || lotSerial || undefined;
+
+      return {
+        name: cleanOdooItemName(line.product_id?.[1] || line.name || "Product"),
+        quantity: line.product_uom_qty || 1,
+        serialNumber,
+        productCategory: detectProductCategory(line.name || line.product_id?.[1] || ""),
+      };
     });
+
+    orders.push(buildOdooOrder(ro, mappedItems));
   }
 
   return orders;
 }
 
+function buildOdooOrder(ro: any, items: any[]): RentalOrder {
+  const statusMap: Record<string, RentalOrder["status"]> = {
+    confirmed: "confirmed",
+    pickup: "confirmed",
+    return: "in_progress",
+    returned: "returned",
+  };
+
+  return {
+    id: `odoo-${ro.id}`,
+    orderRef: ro.name || `ODO-${ro.id}`,
+    customerName: ro.partner_id?.[1] || "Unknown Customer",
+    jobName: ro.name || "Rental Order",
+    jobDate: ro.date_order?.split(" ")[0] || new Date().toISOString().split("T")[0],
+    returnDate: ro.rental_return_date?.split(" ")[0] || "",
+    venue: "",
+    caseAssetCode: `ODO-${ro.id}`,
+    status: statusMap[ro.rental_status] || "confirmed",
+    items,
+    notes: ro.note ? ro.note.replace(/<[^>]*>/g, "") : undefined,
+  };
+}
+
 // ── Clean Odoo Item Names ──────────────────────────────────────────
 
 function cleanOdooItemName(name: string): string {
-  // Remove rental period dates like "(02/15/2025 10:00:00 AM - 02/20/2025 10:00:00 AM)" or similar patterns
   return name
     .replace(/\s*\(\d{1,2}\/\d{1,2}\/\d{2,4}.*?-.*?\d{1,2}\/\d{1,2}\/\d{2,4}.*?\)\s*/g, "")
     .replace(/\s*\(\d{4}-\d{2}-\d{2}.*?-.*?\d{4}-\d{2}-\d{2}.*?\)\s*/g, "")
@@ -320,7 +305,6 @@ function detectProductCategory(name: string): string {
   for (const keyword of CASE_KEYWORDS) {
     if (lower.includes(keyword)) return "case";
   }
-  // Additional heuristics
   if (/\b(cable|xlr|dmx|sdi|hdmi|powercon|cat[56])\b/i.test(name)) return "cable";
   if (/\b(speaker|sub|amp|mixer|mic|monitor|iem|earphone|headphone|di box)\b/i.test(name)) return "audio";
   if (/\b(light|wash|spot|beam|par|strobe|hazer|haze|fog|dmx)\b/i.test(name)) return "lighting";
