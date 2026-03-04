@@ -157,102 +157,86 @@ async function fetchOdooOrders(cred: any): Promise<RentalOrder[]> {
   const orders: RentalOrder[] = [];
 
   for (const ro of rentalOrders) {
-    if (!ro.order_line?.length) {
-      orders.push(buildOdooOrder(ro, []));
-      continue;
-    }
-
-    // Fetch order lines — basic fields first
+    // Fetch order lines via search_read on order_id (more reliable than relying on order_line IDs)
     let lines: any[] = [];
     try {
       lines = await odooRpc(url, rpcArgs(
-        "sale.order.line", "read",
-        [ro.order_line],
-        { fields: ["product_id", "name", "product_uom_qty", "product_template_id"] }
+        "sale.order.line", "search_read",
+        [[["order_id", "=", ro.id]]],
+        { fields: ["product_id", "name", "product_uom_qty"], limit: 500 }
       )) || [];
-    } catch (e) {
-      console.error(`Failed to read order lines for ${ro.name}:`, e);
+    } catch (e: any) {
+      // Keep the order, but gracefully return it with no items if line read fails
       orders.push(buildOdooOrder(ro, []));
       continue;
     }
 
-    // Collect unique product template IDs to fetch barcodes
-    const templateIds = new Set<number>();
+    // Resolve barcodes from product records
+    const productIds = new Set<number>();
     for (const line of lines) {
-      const tmplId = line.product_template_id?.[0];
-      if (tmplId) templateIds.add(tmplId);
+      const productId = line.product_id?.[0];
+      if (productId) productIds.add(productId);
     }
 
-    // Fetch barcodes from product.template
-    const barcodeMap = new Map<number, string>();
-    if (templateIds.size > 0) {
+    const productBarcodeMap = new Map<number, string>();
+    const productTemplateMap = new Map<number, number>();
+    const templateBarcodeMap = new Map<number, string>();
+
+    if (productIds.size > 0) {
       try {
-        const templates = await odooRpc(url, rpcArgs(
-          "product.template", "read",
-          [Array.from(templateIds)],
-          { fields: ["barcode"] }
+        const products = await odooRpc(url, rpcArgs(
+          "product.product", "read",
+          [Array.from(productIds)],
+          { fields: ["barcode", "product_tmpl_id"] }
         )) || [];
-        for (const tmpl of templates) {
-          if (tmpl.barcode) {
-            barcodeMap.set(tmpl.id, tmpl.barcode);
+
+        const templateIds = new Set<number>();
+        for (const product of products) {
+          if (product.barcode) {
+            productBarcodeMap.set(product.id, product.barcode);
+          }
+          const templateId = product.product_tmpl_id?.[0];
+          if (templateId) {
+            productTemplateMap.set(product.id, templateId);
+            templateIds.add(templateId);
+          }
+        }
+
+        if (templateIds.size > 0) {
+          const templates = await odooRpc(url, rpcArgs(
+            "product.template", "read",
+            [Array.from(templateIds)],
+            { fields: ["barcode"] }
+          )) || [];
+
+          for (const template of templates) {
+            if (template.barcode) {
+              templateBarcodeMap.set(template.id, template.barcode);
+            }
           }
         }
       } catch {
-        // If product.template read fails, continue without barcodes
+        // Continue without barcode enrichment if product/template reads fail
       }
-    }
-
-    // Also try to fetch lot/serial info (may fail on some Odoo setups)
-    const lotMap = new Map<number, string>();
-    try {
-      const linesWithLots = await odooRpc(url, rpcArgs(
-        "sale.order.line", "read",
-        [ro.order_line],
-        { fields: ["reserved_lot_ids", "pickedup_lot_ids"] }
-      )) || [];
-
-      const allLotIds = new Set<number>();
-      for (const line of linesWithLots) {
-        for (const id of (line.pickedup_lot_ids || [])) allLotIds.add(id);
-        for (const id of (line.reserved_lot_ids || [])) allLotIds.add(id);
-      }
-
-      if (allLotIds.size > 0) {
-        const lots = await odooRpc(url, rpcArgs(
-          "stock.lot", "read",
-          [Array.from(allLotIds)],
-          { fields: ["name", "ref"] }
-        )) || [];
-        for (const lot of lots) {
-          lotMap.set(lot.id, lot.ref || lot.name || "");
-        }
-      }
-
-      // Merge lot serials into lines
-      for (let i = 0; i < lines.length; i++) {
-        const lotLine = linesWithLots[i];
-        if (lotLine) {
-          lines[i]._lotIds = (lotLine.pickedup_lot_ids?.length ? lotLine.pickedup_lot_ids : lotLine.reserved_lot_ids) || [];
-        }
-      }
-    } catch {
-      // Lot fields not available on this Odoo instance — that's fine
     }
 
     const mappedItems = lines.map((line: any) => {
-      const tmplId = line.product_template_id?.[0];
-      // Priority: product.template barcode > lot serial
-      const barcode = tmplId ? barcodeMap.get(tmplId) : undefined;
-      const lotSerial = (line._lotIds?.length > 0) ? lotMap.get(line._lotIds[0]) : undefined;
-      const serialNumber = barcode || lotSerial || undefined;
+      const productId = line.product_id?.[0];
+      const templateId = productId ? productTemplateMap.get(productId) : undefined;
+      const barcode =
+        (productId ? productBarcodeMap.get(productId) : undefined) ||
+        (templateId ? templateBarcodeMap.get(templateId) : undefined);
+
+      const itemName = cleanOdooItemName(line.product_id?.[1] || line.name || "Product");
 
       return {
-        name: cleanOdooItemName(line.product_id?.[1] || line.name || "Product"),
+        name: itemName,
         quantity: line.product_uom_qty || 1,
-        serialNumber,
-        productCategory: detectProductCategory(line.name || line.product_id?.[1] || ""),
+        serialNumber: barcode || undefined,
+        productCategory: detectProductCategory(itemName),
       };
     });
+
 
     orders.push(buildOdooOrder(ro, mappedItems));
   }
